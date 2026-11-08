@@ -5,10 +5,12 @@ package com.example.checkin
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -58,6 +60,8 @@ fun CheckinScreen(
                 existing?.metrics?.let { putAll(it) }
             }
         }
+        // Metrics the user explicitly switched off (✕) in this record: they are removed from the saved record too.
+        val cleared = remember { mutableStateListOf<String>() }
         val habits = remember { mutableStateMapOf<String, Boolean>().apply { seed?.habits?.let { putAll(it) } } }
         val tags = remember {
             mutableStateListOf<String>().apply {
@@ -132,6 +136,10 @@ fun CheckinScreen(
             SoftCard {
                 SectionTitle("Состояние")
                 if (shownMetrics.isEmpty()) Text("Все показатели скрыты — настрой их в «Мои вопросы».")
+                else Text(
+                    "Случайно задел ползунок? Нажми ✕ рядом со значением — показатель не сохранится.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 shownMetrics.forEach { m ->
                     val v = metrics[m.id]
                     val shown = v ?: m.default
@@ -144,10 +152,31 @@ fun CheckinScreen(
                                 Modifier.padding(horizontal = 14.dp, vertical = 4.dp), color = c, fontWeight = FontWeight.Bold
                             )
                         }
+                        // The ✕ slot is always reserved, so the row does not jump when a value appears.
+                        Box(Modifier.padding(start = 8.dp).size(32.dp), contentAlignment = Alignment.Center) {
+                            if (v != null) {
+                                Surface(
+                                    onClick = {
+                                        metrics.remove(m.id)
+                                        if (m.id !in cleared) cleared.add(m.id)
+                                    },
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("✕", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
                     }
                     Slider(
                         value = shown.toFloat(),
-                        onValueChange = { nv -> metrics[m.id] = Math.round(nv * 10) / 10.0 },
+                        onValueChange = { nv ->
+                            metrics[m.id] = Math.round(nv * 10) / 10.0
+                            cleared.remove(m.id)
+                        },
                         valueRange = m.min.toFloat()..m.max.toFloat(),
                         steps = m.steps,
                         colors = SliderDefaults.colors(
@@ -205,14 +234,22 @@ fun CheckinScreen(
                     val hashtags = Regex("#[\\p{L}\\p{N}_]+").findAll(note).map { it.value.lowercase() }.distinct().toList()
                     // Sleep belongs to the morning record only: moving a record out of the morning must not leave
                     // sleep values attached to it. Everything else (including hidden metrics) is kept as is.
-                    val merged = (existing?.metrics ?: emptyMap()) + metrics
+                    // Metrics switched off with ✕ are dropped from the stored record as well.
+                    val merged = (existing?.metrics ?: emptyMap()).filterKeys { it !in cleared } + metrics
                     val mergedMetrics = if (dayPart(time) == 0) merged else merged.filterKeys { !isSleepMetric(it) }
-                    val id = existing?.id ?: newEntryId()
-                    store.save(
-                        DayEntry(id, dateStr, time, mergedMetrics, habits.toMap(), tags.toList() + hashtags, note.trim(), System.currentTimeMillis())
-                    )
-                    Toast.makeText(ctx, "Сохранено ✓", Toast.LENGTH_SHORT).show()
-                    if (existing == null) onEditChange(id)
+                    val nothingFilled = mergedMetrics.isEmpty() && habits.none { it.value } &&
+                        tags.isEmpty() && hashtags.isEmpty() && note.isBlank()
+                    if (existing == null && nothingFilled) {
+                        // A brand-new record with no answers at all would only pollute the history.
+                        Toast.makeText(ctx, "Пока нечего сохранять — ответь хотя бы на один вопрос", Toast.LENGTH_SHORT).show()
+                    } else {
+                        val id = existing?.id ?: newEntryId()
+                        store.save(
+                            DayEntry(id, dateStr, time, mergedMetrics, habits.toMap(), tags.toList() + hashtags, note.trim(), System.currentTimeMillis())
+                        )
+                        Toast.makeText(ctx, "Сохранено ✓", Toast.LENGTH_SHORT).show()
+                        if (existing == null) onEditChange(id)
+                    }
                 },
                 modifier = Modifier.fillMaxWidth().height(54.dp),
                 shape = RoundedCornerShape(18.dp)
@@ -248,26 +285,35 @@ fun CheckinScreen(
         }
 
         if (quickDialog) {
+            val saveQuick = { mood: Int ->
+                store.save(
+                    DayEntry(
+                        newEntryId(), dateStr, if (isToday) nowTime() else "12:00",
+                        mapOf("mood" to mood.toDouble()), emptyMap(), emptyList(), "", System.currentTimeMillis()
+                    )
+                )
+                Toast.makeText(ctx, "Сохранено ✓", Toast.LENGTH_SHORT).show()
+                quickDialog = false
+            }
             AlertDialog(
                 onDismissRequest = { quickDialog = false },
                 title = { Text("⚡ Быстрая запись") },
-                text = { Text("Один тап — одна запись только с настроением, без вопросов и опроса.") },
-                confirmButton = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf(2 to "😣", 4 to "😕", 5 to "😐", 7 to "🙂", 9 to "😄").forEach { (mood, emoji) ->
-                            TextButton(onClick = {
-                                store.save(
-                                    DayEntry(
-                                        newEntryId(), dateStr, if (isToday) nowTime() else "12:00",
-                                        mapOf("mood" to mood.toDouble()), emptyMap(), emptyList(), "", System.currentTimeMillis()
-                                    )
-                                )
-                                Toast.makeText(ctx, "Сохранено ✓", Toast.LENGTH_SHORT).show()
-                                quickDialog = false
-                            }) { Text(emoji, fontSize = 22.sp) }
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text("Один тап — одна запись только с настроением, без вопросов и опроса.")
+                        // The emoji live in the dialog body (not in the button slot) and share the width equally,
+                        // so the last one can never be pushed out of the dialog.
+                        Row(Modifier.fillMaxWidth()) {
+                            listOf(2 to "😣", 4 to "😕", 5 to "😐", 7 to "🙂", 9 to "😄").forEach { (mood, emoji) ->
+                                Box(
+                                    Modifier.weight(1f).height(52.dp).clip(CircleShape).clickable { saveQuick(mood) },
+                                    contentAlignment = Alignment.Center
+                                ) { Text(emoji, fontSize = 28.sp) }
+                            }
                         }
                     }
                 },
+                confirmButton = {},
                 dismissButton = { TextButton(onClick = { quickDialog = false }) { Text("Отмена") } }
             )
         }
