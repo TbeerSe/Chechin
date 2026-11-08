@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Cloud backup stays fully disabled (privacy): every data domain is excluded explicitly,
+   because excluding "root" alone does not cover files / shared preferences / databases.
+   Device-to-device transfer (new phone via cable / Quick Switch) is allowed so the diary survives a migration.
+   Only the listed files are transferred, so the unfinished-test draft (checkin_ipip_draft.json) stays behind
+   without needing an <exclude> (lint rejects an exclude that is outside every <include>).
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="."/>
+        <exclude domain="file" path="."/>
+        <exclude domain="database" path="."/>
+        <exclude domain="sharedpref" path="."/>
+        <exclude domain="external" path="."/>
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="checkin_data.json"/>
+        <include domain="file" path="checkin_backup_0.json"/>
+        <include domain="file" path="checkin_backup_1.json"/>
+        <include domain="file" path="checkin_backup_2.json"/>
+        <include domain="sharedpref" path="."/>
+    </device-transfer>
+</data-extraction-rules>

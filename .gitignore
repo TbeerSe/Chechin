@@ -1,0 +1,30 @@
+# Gradle / build output
+*.iml
+.gradle/
+/build/
+/app/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+
+# Local machine settings (SDK path, device serials, window state)
+local.properties
+/.idea/
+
+# Release artifacts: publish the APK via GitHub Releases instead of committing it
+/app/release/
+
+# Signing keys and secrets - NEVER commit these
+*.jks
+*.keystore
+*.p12
+keystore.properties
+
+# OS junk
+.DS_Store
+Thumbs.db
+# Kotlin compiler session data
+.kotlin/
+
+# Kotlin compiler session data
+.kotlin/
